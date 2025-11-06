@@ -1,6 +1,6 @@
 # Advanced Winter School in Computational Social Science
 
-> [!WARNING[
+> [!WARNING]
 > Copied over README, not yet finalized. Remove this note once the updated schedule is in here.
 
 ## GitHub Repo
