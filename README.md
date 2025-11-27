@@ -10,7 +10,7 @@ Since we are in the midst of a busy semester at the university, we will be switc
 
 ## Schedule
 
-For the full schedule in PDF format, please see the accompanying PDF-file in this repository. Below follows an overview over the schedule.
+For the full schedule in PDF format, please [see the accompanying PDF-file in this repository](./SIRCSS%20AWS%202025%20Schedule%20v1.pdf). Below follows an overview over the schedule.
 
 ### Course Description
 
