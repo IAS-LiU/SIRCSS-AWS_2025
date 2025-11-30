@@ -33,8 +33,8 @@ Sunday, November 30
 
 Monday, December 1
 
-- Lecture: Introduction to Supervised Learning, [Room TP 53](https://link.mazemap.com/OepqpJPK) (10.00-12.00).
-- Laboratory: Parametric & Non-Parametric Supervised Learning, [Room TP 53](https://link.mazemap.com/OepqpJPK) (13.00-16.00).
+- Lecture: Introduction to Supervised Learning, [Room TP 53](https://link.mazemap.com/OepqpJPK) (10.00-14.00).
+- Laboratory: Parametric & Non-Parametric Supervised Learning, [Room TP 53](https://link.mazemap.com/OepqpJPK) (14.00-17.00).
 
 Tuesday, December 2
 
