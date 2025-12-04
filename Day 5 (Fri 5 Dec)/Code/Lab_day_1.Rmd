@@ -1,0 +1,970 @@
+---
+title: "Networks day 1 -- Coding Lab and Exercises"
+author: "Alexandra Rottenkolber"
+date: "2023-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# Clean the environment
+rm(list=ls())
+
+library(sna) # networks package
+library(igraph) # networks package 
+# beware of masked functions
+library(gtools) 
+library(ggplot2) # nice plots
+library(dplyr) # data manipulation
+library(data.table) # data handling
+
+
+# Sometimes convenient to detach packages
+# detach(package:sna,unload = TRUE)
+
+# Or call functions by specifying the package they are from
+# sna::betweenness()
+# igraph::betweenness()
+
+options(scipen=999) # set notation option
+
+setwd("/Users/alexandrarottenkolber/Documents/03_PhD_at_LiU/Winter School/Networks")
+```
+
+# Content of this Lab
+
+1. Reading and exploring network data
+
+2. Network descriptives and centrality measures
+
+3. Elementary transformation: dichotomization, transposition, and symmetrization
+
+4. Multiplex & bipartite networks
+
+5. Random networks
+
++ Erdős–Rényi graph 
++ Watt-Strogatz graph (small world networks)
++ Barabasi-Albert graph (preferential attachment model)
+
+
+# Data management and representation of networks
+
+### Data handling 
+
+```{r data handling 1}
+
+# 1) READING AND EXPLORING NETWORK DATA
+
+# Information on the data we will use
+#browseURL("https://www.stats.ox.ac.uk/~snijders/siena/s50_data.htm")
+
+edges_t1 <- read.csv("./s50_data/s50-network1.dat", header = FALSE, sep = " ") # adjacency matrix of the student network
+edges_t1$V1 <- NULL # remove index
+
+node_sport <- read.csv("./s50_data/s50-sport.dat", header = FALSE, sep = " ") # How much sport people do 
+node_sport$V1 <- NULL # remove index
+names(node_sport) <- c("t1", "t2", "t3") # set column names
+node_sport["node_id"] <- colnames(edges_t1)
+
+node_alc <- read.csv("./s50_data/s50-alcohol.dat", header = FALSE, sep = " ") # How much people do sports 
+node_alc$V1 <- NULL # remove index
+names(node_alc) <- c("t1", "t2", "t3") # set column names
+node_alc["node_id"] <- colnames(edges_t1)
+
+```
+
+```{r data handling 2}
+
+# Data exploration
+class(node_sport); class(node_alc); class(edges_t1)
+dim(node_sport); dim(node_alc); dim(edges_t1)
+
+head(node_sport) # this is a standard data set, each row represents a person (N = 50)
+# For your own analysis it it always good to check for duplicates
+# length(unique(nodes$ID)) == nrow(nodes))
+colnames(node_sport)
+
+head(edges_t1) # This is an adjacency matrix (student -> reported friend)
+colnames(edges_t1)
+# If we had an edge list, I makes sense check whether there are any duplicated ties (any(duplicated(edge_list))
+
+```
+
+```{r data handling 3}
+
+# Conversion to igraph graph
+mtx <- as.matrix(edges_t1)
+grph <- graph_from_adjacency_matrix(mtx) # igraph functions take matrices as inputs
+length(get.edgelist(grph)) # 226 ties
+length(isolates(mtx)) # number of isolates
+
+# visualise graph
+plot.igraph(grph,
+            vertex.label='',vertex.size=4,
+            edge.color='darkgrey',edge.arrow.size=.2,
+            layout=layout_with_kk(grph), # other options: layout_nicely, layout_with_fr (<-- this one is furchterman reingold)
+            main='Friendship network')
+
+```
+
+```{r data handling 4}
+
+# Addition of nodes' attributes (amount of sport and alcohol consumption)
+# Careful to correctly match the igraph object with attribute data
+V(grph)$name[1:10] # This is the order in which nodes appear in the igraph object
+node_sport$node_id[1:10] # This - the order in the other element
+# Use the match function
+node_sport[match(V(grph)$name,node_sport$node_id),]$t1 # usually nodes and edges are not aligned in the same order => make sure you assign the right attributes to the right node 
+node_alc[match(V(grph)$name,node_alc$node_id),]$t1 
+
+V(grph)$sport <- node_sport[match(V(grph)$name,node_sport$node_id),]$t1
+V(grph)$alc_con <- node_alc[match(V(grph)$name,node_alc$node_id),]$t1
+
+# Final inspection of the igraph object
+grph
+
+```
+
+```{r data handling 5}
+
+# Remember nodes attributes can be visualized
+# -- Sport
+plot.igraph(grph,
+            vertex.label='',vertex.size=4,vertex.color=ifelse(V(grph)$sport == 2,'royalblue','orange'), # 2 means regular sport
+            edge.color='darkgrey',edge.arrow.size=.2,
+            layout=layout_with_kk(grph),
+            main='Friendship network with level of sport \nblue: regular, orange: not regular')
+  
+# legend("bottomright", legend = c('Regular','not regular','Unknown'), 
+#        title = "Sport", 
+#        pch=21, pt.bg=c("royalblue","orange",'white'))
+
+
+# -- Alcohol consumption
+# Create a palette
+unique(V(grph)$alc_con)
+pal <- c("royalblue", "lightblue", "lightgreen", "orange", "red") # Alcohol: 1 (non), 2 (once or twice a year), 3 (once a month), 4 (once a week) and 5 (more than once a week).
+
+# Get each node's consumption behaviour
+nodeCon <- V(grph)$alc_con[!duplicated(V(grph)$name)]
+
+# Assign to the vertices as a color attribute
+V(grph)$alc_color <- pal[nodeCon]
+
+plot.igraph(grph,
+            vertex.label='', 
+            vertex.size=4,
+            vertex.color=V(grph)$alc_color, # 2 means regular sport
+            edge.color='darkgrey',
+            edge.arrow.size=.2,
+            layout=layout_with_kk(grph),
+            main='Friendship network with alcohol consumption \nblue (non), lightblue (once or twice a year), green (once a month),\norange (once a week) and red (more than once a week)')
+
+#[this piece of code works in the .R file, not in the .rmd one]
+# Legend
+# legend("bottomright", 
+#        legend = c("non", "once or twice a year", "once a month", "once a week", "more than once a week"), 
+#        title = "Alcohol consumption", 
+#        pch=21, 
+#        pt.bg=pal)
+
+```
+
+### Descriptives 
+
+
+```{r descriptives 1}
+
+# 2) NETWORK DESCRIPTIVES AND CENTRALITY MEASURES
+
+# 2.1) Components
+igraph::components(grph)
+igraph::components(grph)$no # Number of components: 8
+igraph::components(grph)$csize # Remember each isolate is her own component
+igraph::components(grph)$csize[igraph::components(grph)$csize > 1] 
+sum(igraph::degree(grph) == 0) # isolates
+
+# 2.2) Density
+igraph::edge_density(grph) # you can also report it as a percentage, density is sensitive to size
+# I personally find always more useful average degree
+mean(igraph::degree(grph, mode="in")) # You can use either "in" or "out"
+
+# 2.3) Reciprocity
+igraph::reciprocity(grph) # in igraph, reciprocity is edgewise by default
+# This is not the case in sna => gives the percentage of how many ties are reciprocal 
+
+# 2.4) Transitivity, indicates the clustering, whether there are people that form triangles
+igraph::transitivity(grph)
+
+# 2.5) Degree distribution
+mean(igraph::degree(grph, mode='out'))
+
+# Standard deviations
+sd(igraph::degree(grph, mode='out'))
+sd(igraph::degree(grph, mode='in'))
+
+# Range
+range(igraph::degree(grph, mode='out'))
+range(igraph::degree(grph, mode='in'))
+
+# centrality measures 
+hist(igraph::degree(grph))
+hist(igraph::betweenness(grph, directed=FALSE, weights=NA))
+hist(igraph::closeness(grph))
+hist(igraph::page_rank(grph)$vector)
+```
+
+```{r descriptives 2}
+# Let's save degrees
+dgr <- data.frame(personid = rep(V(grph)$name,times=2),
+                  degree = c(igraph::degree(grph, mode='out'), igraph::degree(grph, mode='in')),
+                  type = rep(c('outdegree','indegree'), each=vcount(grph)))
+unique(dgr$type)
+head(dgr,10)
+
+# Visualization
+ggplot(data=dgr) +
+  geom_histogram(aes(x=degree), color='black', fill='orange') +
+  facet_wrap(~type,scales='free') +
+  theme_classic()
+
+```
+
+```{r descriptives 3}
+
+# We can include this information to the igraph and network visualization...
+V(grph)$indegree <- degree(grph,mode='in')
+grph
+plot.igraph(grph,
+            vertex.label='',
+            vertex.size=V(grph)$indegree, 
+            vertex.color=ifelse(V(grph)$sport == 2,'royalblue','orange'),
+            edge.color='darkgrey',
+            edge.arrow.size=.2,
+            layout=layout_with_kk(grph),
+            main='Friendship network, \nnode color indicates amount of sport \nand node size indicated the indegree')
+
+# Other types of centrality that can be obtained are, for example, betweenness, closeness
+igraph::betweenness(grph)
+
+# 2.6) Homophily/assortativity
+assortativity_degree(grph,directed=TRUE) # Assortativity degree 
+
+# Careful, positive assortativity means homophily (contrary to the EI index)
+?assortativity
+
+# Homophily by sport
+isnar::assort(grph,'sport')
+isnar::ei(grph,'sport') # EI index
+
+# Homophily by alcohol
+isnar::assort(grph,'alc_con')
+isnar::ei(grph,'alc_con') # EI index
+
+```
+
+#### Exercise 1: 
+
+1) Find out who are the nodes with highest "indegree" and "outdegree"
+
+2) Can you visualise your network in a way so that node color depict different centrality measures? 
+
+3) Repeat descriptive but for the final year of data collection. Which differences do you observe? 
+
+
+```{r exercise 1.1}
+
+# EXERCISES
+# 1) Find out who are the nodes with highest "indegree" and "outdegree"
+
+# person with highest indegree
+dgr$personid[max(dgr$degree[dgr$type =="indegree"])]
+
+# person with highest outdegree
+dgr$personid[max(dgr$degree[dgr$type =="outdegree"])]
+
+```
+
+```{r exercise 1.2}
+# 2) Can you visualize your network in a way so that node color depict different centrality measures? 
+
+igraph::betweenness(grph) # betweenness centrality 
+
+# Visualisation
+#
+# Assign centrality score as attribute, example here is betweenness centrality
+V(grph)$bcentrality <- igraph::betweenness(grph, directed=FALSE, weights=NA)
+V(grph)$dcentrality <- igraph::degree(grph)
+V(grph)$ccentrality <- igraph::closeness(grph)
+V(grph)$pcentrality <- igraph::page_rank(grph)$vector
+
+hist(V(grph)$bcentrality)
+
+# Normalise values to get a ranking
+normalize <- function(x){(x-min(x))/(max(x)-min(x))} # min-max scaling brings everything to the interval [0,1] 
+V(grph)$bcentrality_index <- round(normalize(V(grph)$bcentrality)*9)+1 # this adjustment returns values between [1, 10] 
+V(grph)$bcentrality_index
+```
+
+```{r exercise 1.2, 2nd part}
+# Map 10 colors to the 10 centrality-measure categories
+V(grph)$bcolor_centrality <- colorRampPalette(c("steelblue", "gold","darkred"))(10)[V(grph)$bcentrality_index]
+
+# do it for the others, too
+V(grph)$ccentrality_index <- round(normalize(V(grph)$ccentrality)*9)+1 # this adjustment returns values between [1, 10] 
+V(grph)$ccolor_centrality <- colorRampPalette(c("steelblue", "gold","darkred"))(10)[V(grph)$ccentrality_index] # Map 10 colors to the 10 centrality-measure categories
+
+V(grph)$dcentrality_index <- round(normalize(V(grph)$dcentrality)*9)+1 # this adjustment returns values between [1, 10] 
+V(grph)$dcolor_centrality <- colorRampPalette(c("steelblue", "gold","darkred"))(10)[V(grph)$dcentrality_index] # Map 10 colors to the 10 centrality-measure categories
+
+V(grph)$pcentrality_index <- round(normalize(V(grph)$pcentrality)*9)+1 # this adjustment returns values between [1, 10] 
+V(grph)$pcolor_centrality <- colorRampPalette(c("steelblue", "gold","darkred"))(10)[V(grph)$pcentrality_index] # Map 10 colors to the 10 centrality-measure categories
+
+#par(mfrow=c(2,2))
+set_layout <- layout_with_kk(grph)
+
+# plot
+plot(grph,
+     vertex.color = V(grph)$dcolor_centrality,
+     vertex.label=NA,
+     vertex.size=9, 
+     main='Degree centrality',
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     layout = set_layout)
+
+plot(grph,
+     vertex.color = V(grph)$ccolor_centrality,
+     vertex.label=NA,
+     vertex.size=9, 
+     main='Closeness centrality',
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     layout = set_layout)
+
+plot(grph,
+     vertex.color = V(grph)$bcolor_centrality,
+     vertex.label=NA,
+     vertex.size=5, 
+     main='Betweenness centrality',
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     layout = set_layout)
+
+plot(grph,
+     vertex.color = V(grph)$pcolor_centrality,
+     vertex.label=NA,
+     vertex.size=5, 
+     main='Pagerank',
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     layout = set_layout)
+
+```
+
+```{r exercise 1.3}
+# 3) Repeat the descriptive analysis but for the final year of data collection 
+
+
+# ties for third wave
+edges_t3 <- read.csv("./s50_data/s50-network2.dat", header = FALSE, sep = " ") # adjacency matrix of the student network
+edges_t3$V1 <- NULL # remove index
+
+V(grph)$sport <- node_sport[match(V(grph)$name,node_sport$node_id),]$t3
+V(grph)$alc_con <- node_alc[match(V(grph)$name,node_alc$node_id),]$t3
+
+mtx_t3 <- as.matrix(edges_t3)
+grph_t3 <- graph_from_adjacency_matrix(mtx_t3)
+
+plot.igraph(grph_t3,
+            vertex.label='',vertex.size=4,
+            edge.color='darkgrey',edge.arrow.size=.2,
+            layout=layout_with_kk(grph), # other options: layout_nicely, layout_with_fr (<-- this one is furchterman reingold)
+            main='Friendship network')
+
+plot.igraph(grph_t3,
+            vertex.label='',vertex.size=4,vertex.color=ifelse(V(grph)$sport == 2,'royalblue','orange'), # 2 means regular sport
+            edge.color='darkgrey',edge.arrow.size=.2,
+            layout=layout_with_kk(grph),
+            main='Friendship network with level of sport \nblue: regular, orange: not regular')
+
+plot.igraph(grph_t3,
+            vertex.label='', 
+            vertex.size=4,
+            vertex.color=V(grph)$alc_color, # 2 means regular sport
+            edge.color='darkgrey',
+            edge.arrow.size=.2,
+            layout=layout_with_kk(grph),
+            main='Friendship network with alcohol consumption \nblue (non), lightblue (once or twice a year), green (once a month),\norange (once a week) and red (more than once a week)')
+
+
+# 2.1) Components
+igraph::components(grph_t3)
+igraph::components(grph_t3)$no # Number of components: 3
+igraph::components(grph_t3)$csize # Remember each isolate is her own component
+sum(igraph::degree(grph_t3) == 0) # isolates
+
+# 2.2) Density
+igraph::edge_density(grph_t3) # density at t1: 0.046
+mean(igraph::degree(grph_t3, mode="in")) # at t1: 2.26
+
+# 2.3) Reciprocity
+igraph::reciprocity(grph_t3) # at t1: 0.69
+
+# 2.4) Transitivity, indicates the clustering, whether there are people that form triangles
+igraph::transitivity(grph_t3) # at t1: 0.42
+
+# 2.5) Degree distribution
+mean(igraph::degree(grph_t3, mode='out')) # at t1: 2.26
+
+# Standard deviations
+sd(igraph::degree(grph_t3, mode='out'))
+sd(igraph::degree(grph_t3, mode='in'))
+
+# Range
+range(igraph::degree(grph_t3, mode='out'))
+range(igraph::degree(grph_t3, mode='in'))
+```
+
+### Transformations
+
+
+```{r transformations 1}
+
+# 3) BASIC TRANSFORMATION
+
+# 3.1) Dichotomization (recoding)
+# Useful when valued or weighted matrices, but we aim for a simple analysis (logistic regression)
+# Image, respondents were asked to assess their relationship with others on a scale 1 to 5
+
+w.mtx <- matrix(c(0,5,2,1,2,
+                  4,0,0,3,2,
+                  2,2,0,4,3,
+                  1,2,5,0,3,
+                  1,1,5,4,0),
+                nrow=5,ncol=5,byrow=TRUE,
+                dimnames = list(c('A','B','C','D','E'),c('A','B','C','D','E')))
+w.mtx
+
+# igraph object
+w.grph <- graph.adjacency(w.mtx,weighted = TRUE)
+w.grph
+plot.igraph(w.grph) # a fully connected network
+plot(w.grph,edge.width=E(w.grph)$weight,main="weights visible") # With some ties stronger than others
+
+# You decide that at least a 4 needs to be given for a tie to exist
+# Let's keep only strong ties: 4 OR 5
+dich.mtx <- w.mtx
+dich.mtx[dich.mtx %in% 0:3] <- 0
+dich.mtx[dich.mtx %in% 4:5] <- 1
+dich.mtx
+
+dich.grph <- graph.adjacency(dich.mtx)
+dich.grph
+plot(dich.grph,main='dichotomized version')
+```
+
+```{r transformations 2}
+
+# 3.2) Transposition (shifting rows for columns)
+# Reversing the direction of the ties
+# Useful depending on the data collection procedure
+(dich.mtx.t <- t(dich.mtx))
+dich.grph.t <- graph.adjacency(dich.mtx.t)
+plot(dich.grph.t,main='transposed version')
+
+```
+
+```{r transformations 3}
+
+# 3.3) Symmetrization (from directed to undirected network)
+(sym.mtx.weak <- symmetrize(dich.mtx,rule='weak')) # asymmetric ties kept (max-symmetrizing)
+(sym.mtx.stro <- symmetrize(dich.mtx,rule='strong')) # only mutual ties are kept (min-symmetrizing)
+
+# The function removes the nodes' names
+dimnames(sym.mtx.weak) <- list(c('A','B','C','D','E'),c('A','B','C','D','E'))
+dimnames(sym.mtx.stro) <- list(c('A','B','C','D','E'),c('A','B','C','D','E'))
+
+# Convert into igraph objects
+sym.grph.weak <- graph.adjacency(sym.mtx.weak,mode='undirected') # notice the argument: mode="undirected"
+sym.grph.stro <- graph.adjacency(sym.mtx.stro,mode='undirected') # notice the argument: mode="undirected"
+
+par(mfrow=c(1,2)) # Two plots side to side
+plot.igraph(sym.grph.weak,main='Max-symmetrized')
+plot.igraph(sym.grph.stro,main='Min-symmetrized')
+par(mfrow=c(1,1))
+```
+
+### Bipartite networks 
+
+
+```{r bipartite 1}
+
+# 4) BIPARTITE AND MULTIPLEX NETWORKS
+
+# 4.1) Bipartite networks (two types of nodes)
+bip.mtx <- matrix(data=c(1,0,0,0,
+                         1,1,0,0,
+                         0,0,1,0,
+                         0,1,1,0,
+                         1,0,0,1,
+                         1,1,0,1,
+                         0,0,0,1),
+                  nrow=7,ncol=4,byrow = TRUE,
+                  dimnames = list(c('Agnes','Birgit','Cecilie','Dan','Elijah','Frank','Gerda'),
+                                  c('Spotify','Ikea','Volvo','H&M')))
+bip.mtx
+
+# You can derive two unipartite (weighted) networks using matrix multiplication
+bip.mtx %*% t(bip.mtx) 
+t(bip.mtx) %*% bip.mtx
+```
+
+```{r bipartite 2}
+# EXERCISES
+# 1) What does the diagonal capture?
+
+# 2) And the values off the diagonal?
+
+```
+
+### Multiplex networks 
+
+```{r multiplex 1}
+# 4.2) Multiplex network: the special case of signed graphs (positive and negative ties)
+# Say values of 1 in w.mtx means "conflictual relationship", we can derive another network (on top of dich.mtx)
+neg.mtx <- w.mtx
+neg.mtx[neg.mtx %in% 2:5] <- 0
+neg.mtx
+
+# Turn into igraph format
+neg.grph <- graph.adjacency(neg.mtx,mode='directed')
+plot.igraph(neg.grph,edge.color='red',main='Negative ties')
+
+# We can merge positive and negative ties now
+E(neg.grph)$sign <- 'negative'
+signed.grph <- graph.union(dich.grph,neg.grph)
+signed.grph
+
+# Non-negative ties are filled with NA
+E(signed.grph)$sign
+E(signed.grph)$sign[is.na(E(signed.grph)$sign)] <- 'positive'
+
+# Visualization
+plot(signed.grph,
+     edge.color=ifelse(E(signed.grph)$sign == 'negative','red','darkgrey'),
+     edge.lty=ifelse(E(signed.grph)$sign == 'negative',2,1), # Dashed vs solid lines
+     main='Signed graph')
+# legend("bottomright", legend = c('Positive tie','Negative tie'),
+#        col=c('darkgrey','red'),lty=c(1,2), 
+#        lwd=2, ncol=1)
+
+```
+
+
+# Exercises on random graphs
+
+### Erdős–Rényi model
+
+The simplest version of a random graph is the Erdös-Rényi (ER) model, sometimes called the $G_{n, p}$ model. In the model, the number of nodes $n$ and the connection probability $p$ are pre-defined. Then, the model produces a graph with random connections.
+
+Despite its simplicity, Erdös-Rényi graphs show some characteristics similar to real-world networks. As their mathematics is relatively simple, they have been studied extensively. They can serve as a null model to conduct statistical tests on networks.
+
+Often, ER-graphs a little too simplistic to provide appropriate comparisons for empirical networks. Therefore, more sophisticated models and techniques for statistical hypothesis testing have been developed, which will be covered later.
+
+
+#### Exercise 1: 
+
+Let's construct a random graph à la Erdős–Rényi ourselves.
+
+Some conceptual help. We want to create a graph that has n nodes which get randomly connected. Accordingly, we have to decide on a probability that determines whether or not an edge will get to connect two nodes. Let's choose 40% for the time being.
+
+(1) Start with an empty graph and add n nodes. Then,
+
+(2) Write an algorithm that determines (based on our given probability) whether any two nodes will be connected by an edge or not.
+
+(3) If you can, wrap your code in a function so that you can generate multiple graphs with different parameter choices automatically. Try to include an option that lets you choose whether to generate a directed or undirected graph.
+
+(4) Visualise your graph.
+
+```{r ER-graph}
+generate_erdos_renyi_func <- function(number_of_nodes, p, directed = TRUE) {
+  
+  # Return a Erdős–Rényi graph.
+  
+  # Parameters
+  # ----------
+  # number_of_nodes : int
+  #     The number of nodes
+  # p : float
+  #     The probability of creating an edge
+  # directed : boolean
+  #     Whether returned graph is directed or undirected. Default is TRUE.
+  # 
+  # Notes
+  # -----
+  # Algorithm of creation: 
+  #   1. Create a ring over n nodes. 
+  #   2. For each node, connect it with k nearest neighbors (k-1 neighbors if k is odd).
+  #   3. Create shortcuts by replacing some edges as follows:
+  #       - for each edge u-v in the underlying 'n-ring with k nearest neighbors'
+  #         with probability p replace it with a new edge u-w with uniformly
+  #         random choice of existing node w.
+  # 
+  # The random rewiring does not increase the number of edges and the rewired graph
+  # is not guaranteed to be connected.
+  # 
+  # References
+  # ----------
+  # .. [1] Duncan J. Watts and Steven H. Strogatz,
+  #    Collective dynamics of small-world networks,
+  #    Nature, 393, pp. 440--442, 1998.
+
+  
+  if (directed) {
+    G <- make_empty_graph(n = number_of_nodes, directed = TRUE)
+    edges <- permutations(number_of_nodes, 2) # for directed graph
+  } else {
+    G <- make_empty_graph(n = number_of_nodes, directed = FALSE)
+    edges <- combinations(number_of_nodes, 2) # for undirected graph 
+  }
+  
+  for (i in seq(length(edges)/2)) {
+    if (runif(1) <= p){
+      #G <- G + edge(edges[i, 1], edges[i, 2])
+      G <- G %>% add_edges(c(edges[i, 1], edges[i, 2]))
+    } 
+  }
+  return(G)
+}
+
+set.seed(123) # Set seed for reproducibility
+G <- generate_erdos_renyi_func(number_of_nodes = 10, p = 1, directed = FALSE)
+
+# Plot the graph
+plot(G, layout = layout.circle, vertex.label = 1:10)
+
+
+```
+
+
+
+Erdős–Rényi networks are a good starting point in building random graphs. A surprisingly realisitic feature of them is the short average path length. In contrast to real-world networks, however, ER-graphs are characterised by a low clustering coefficient. To overcome such shortcomings, more sophisticated random graph models have been developed. The two most famous examples are the Watts-Strogatz and the Barabási-Albert model.
+
+Both types of networks aim to provide a simple mathematical model that result in more realistic features than ER-graphs. While the Watts-Strogatz model focuses on the observation that many networks show a 'small-world' effect, the Barabási-Albert model proposes a preferential link attachment mechanism to create a graph with a scale-free (i.e. power law) degree distribution.
+
+There are plenty of other models in the literature, which aim to generate realistic network properties. Among the most prominent ones is the 'configuration model', which is a versatile model to produce graphs with any form of degree distribution. For more details, see for example Newman (2018) Chapter 12 and Latora et al. (2018) Chapter 5.
+
+In the following exercises, we focus on the Watts-Strogatz model and the Barabási-Albert model.
+
+
+### Watts–Strogatz model
+
+#### Exercise 2
+
+Below you find the construction of a Watts-Strogatz model from scratch. Try to understand the code and describe in your own words what is going on. What is typical for this structure? Which mechanism do you think could potentially guide its emergence?
+
+
+```{r small worlds, echo=TRUE}
+
+# Function to create a Watts-Strogatz graph
+create_watts_strogatz_graph <- function(n, k, p) {
+  
+    # Return a Watts-Strogatz small-world graph.
+    # 
+    # Parameters
+    # ----------
+    # n : int
+    #     The number of nodes
+    # k : int
+    #     Each node is connected to k nearest neighbors in ring topology
+    # p : float
+    #     The probability of rewiring each edge
+    # 
+    # Notes
+    # -----
+    # Algorithm of creation: 
+    #   1. Create a ring over n nodes. 
+    #   2. For each node, connect it with k nearest neighbors (k-1 neighbors if k is odd).
+    #   3. Create shortcuts by replacing some edges as follows:
+    #       - for each edge u-v in the underlying 'n-ring with k nearest neighbors'
+    #         with probability p replace it with a new edge u-w with uniformly
+    #         random choice of existing node w.
+    # 
+    # The random rewiring does not increase the number of edges and the rewired graph
+    # is not guaranteed to be connected.
+    # 
+    # References
+    # ----------
+    # .. [1] Duncan J. Watts and Steven H. Strogatz,
+    #    Collective dynamics of small-world networks,
+    #    Nature, 393, pp. 440--442, 1998.
+  
+  
+  # Create a ring 
+  #g <- graph.lattice(dim = c(1, n), nei = k, directed = FALSE, circular = TRUE)
+  
+  G <- make_empty_graph(n, directed = FALSE)
+
+  # connect k nearest neighbors
+  ls_of_nodes <- seq(n)
+  
+  edges <- list()
+  
+  for (j in seq(floor(k/2)) ) {
+    # Shift elements
+    target_nodes <- c(tail(ls_of_nodes, -j), head(ls_of_nodes, j))
+    # create edges
+    more_edges <- list()
+    more_edges <- cbind(ls_of_nodes, target_nodes)
+    edges <- rbind(edges, more_edges)
+  }
+  
+  # add edges ro graph
+  G <- add_edges(G, unlist(as.vector(t(edges))))
+  
+  for (i in seq(ecount(G))) {
+    
+    u <- edges[i, 1]$ls_of_nodes
+    v <- edges[i, 2]$target_nodes
+    
+    if (runif(1) <= p){
+      w <- sample(ls_of_nodes, 1)
+      
+      # enforce no self-loops or multiple edges
+      while ((w == u) | (are.connected(G, u, w))) {
+        w <- sample(ls_of_nodes, 1)
+      }
+        
+      if (degree(G, u) >= n-1) {
+        break
+      }
+      
+      else {
+        G <- delete_edges(G, edge = c(u, v))
+        G <- add_edges(G, c(u, w))
+      }
+    }
+    }
+  
+  return(G)
+}
+  
+set.seed(123) # Set seed for reproducibility
+G <- create_watts_strogatz_graph(25, 5, 0.2)
+
+# Plot the graph
+plot(G, layout = layout.circle)
+
+```
+
+### Barabási–Albert model
+
+
+Another really famous random graph is the Barabási–Albert model: It is grown by attaching new nodes each with m edges preferentially to existing nodes with high degree.
+You can find the documentation of the igraph function [here](https://igraph.org/r/doc/sample_pa.html).
+
+
+```{r prefertial attachment, echo=TRUE}
+G_pa <- sample_pa(30, directed = FALSE)
+plot(G_pa, layout = layout.circle)
+```
+
+
+#### Exercise 4:
+
+In this exercise, we will start comparing a "real-world" dataset with some of the random graph models that were introduced in this week's lecture. The dataset contains the citation network of DBLP -- a database of different scientific publications (source).
+
+(1) Generate an Erdős-Rényi graph, a Watts-Strogatz model, and a Barabási–Albert model with (approximately) the same number of nodes and edges as observed in the citation network (use your self-written function from above for the Erdős-Rényi graph if you can).
+
+For all four networks,
+
+(2) Plot the probability distribution (PDF) of finding a node with a certain degree over the degrees, and
+
+(3) Plot the complement of a cumulative distribution (CCDF) in log-log scale.
+
+The CCDF displays basically the same information as the probability distribution over degrees, but instead of having the 'probability of finding a node with its degree equal to k' on the y-axis, the CCDF shows the 'probability of finding a node of degree k or higher'. The CCDF is not a scattergram anymore, but a function that comes in handy if you want to fit it. Discuss the salient differences between the observed distributions for PDF and CCDF.
+
+(4) Compare and interpret.
+
+
+```{r Exercise 4, echo=FALSE}
+
+# (1) 
+
+# Function to print information about the graph
+get_info <- function(graph) {
+  cat("Network Summary:\n")
+  cat("Number of nodes: ", vcount(graph), "\n")
+  cat("Number of edges: ", ecount(graph), "\n")
+  cat("Density: ", round(igraph::graph.density(graph), 5), "\n")
+  cat("Average in-degree: ", round(mean(igraph::degree(graph, mode = "in")), 2), "\n")
+  cat("Average out-degree: ", round(mean(igraph::degree(graph, mode = "out")), 2), "\n")
+}
+
+# Read in the citation network from a CSV file
+df_cit <- read.csv("./data/cit-DBLP.csv")
+df_cit <- df_cit[, -c(1)]
+# Create a directed graph from the data frame
+G_cit <- graph_from_data_frame(df_cit, directed = TRUE)
+# Set the name of the graph
+G_cit$name <- "Citation network"
+
+# Generate Erdős–Rényi graph
+G_er <- sample_gnp(n = 12591, p = graph.density(G_cit), directed = TRUE)
+G_er$name <- "Erdös-Renyi graph"
+
+# Generate Watts Strogatz graph
+G_sm <- sample_smallworld(dim = 1, size = 12591, nei = 5, p = 0.3, loops = FALSE, multiple = FALSE)
+G_sm$name <- "Watts-Strogratz graph"
+
+# Generate Barabasi-Albert graph
+G_pa <- sample_pa(n = 12591, m = 4, directed = TRUE)
+G_pa$name <- "Barabasi-Albert graph"
+
+# Call the function to get information about the citation network
+get_info(G_cit)
+get_info(G_er)
+get_info(G_sm)
+get_info(G_pa)
+
+G_er$name
+
+# (2) 
+
+# Function to plot the Probability Density Function (PDF) for graph degrees
+plot_PDF <- function(graph) {
+  degree_df <- as.data.frame(igraph::degree(graph))
+  colnames(degree_df) <- "degree"
+  group_totals <- count(degree_df, degree)
+  group_totals["share"] <- group_totals$n/vcount(graph)
+  #  ggplot(degree_df) +
+   # geom_histogram(bins = 20, aes(x = degree, y = after_stat(density))) +#, fill = "grey", color = "black") +
+  #  scale_y_log10() + 
+   # labs(title = paste0("PDF for the ", graph$name), x = "Degree k", y = "P(k)")
+    
+    hist(log(degree_df$degree), # histogram
+       col="grey", # column color
+       border="white",
+       prob = TRUE, # show densities instead of frequencies
+       xlab = "Degree k",
+       ylab = "Density of the logged values", 
+       main = paste0("PDF for the ", graph$name))
+}
+
+plot_PDF(G_cit)
+plot_PDF(G_er)
+plot_PDF(G_sm)
+plot_PDF(G_pa)
+
+
+# (3)
+
+
+plot_CCDF <- function(graph) {
+  degree_df <- as.data.frame(igraph::degree(graph))
+  colnames(degree_df) <- "degree"
+  group_totals <- count(degree_df, degree)
+  
+  sorted_vals <- sort(unique(igraph::degree(graph)), decreasing = FALSE)
+  
+  ccdf <- rep(0, length(sorted_vals))
+  n <- as.double(length(sorted_vals))
+  
+  for (i in seq(length(sorted_vals))) {
+    ccdf[i] <- sum(degree_df >= sorted_vals[i])/n
+  }
+  
+  ccdf_df <- as.data.frame(cbind(sorted_vals, ccdf))
+  
+  
+  ggplot(ccdf_df, aes(x = sorted_vals, y = ccdf)) +
+    geom_line() +
+    scale_y_log10() +
+    scale_x_log10() + 
+    labs(title = paste0("CCDF for the ", graph$name), x = "Degree k", y = "P(k>=x)")
+}
+
+
+plot_CCDF(G_cit)
+plot_CCDF(G_er)
+plot_CCDF(G_sm)
+plot_CCDF(G_pa)
+
+```
+
+
+#### Exercise 5:
+
+Exercise 5: Comparison of clustering coefficients
+
+(1) Compare the clustering coefficients of all three networks. You can use igraph::transitivity(graph) to calculate them. What do your findings tell you?
+(2) Calculate the connection probability p for your graphs.
+
+$p \frac{n(n-1)}{2} = m$
+
+with p: connection probability, m: number of edges, n: number of nodes
+
+How does the connection probability compare to the clustering coefficients?
+
+
+```{r Exercise 5 part 1, echo=TRUE}
+# comparison of clustering coefficients (measure of the degree to which nodes in a graph tend to cluster together)
+
+graphs_ls <- list(G_cit, G_er, G_sm, G_pa)
+
+for (g in graphs_ls) {
+  c_coef = igraph::transitivity(g)
+  cat(g$name,":", round(c_coef, 4), "\n")
+}
+```
+
+
+```{r Exercise 5 part 2, echo=TRUE}
+
+calculate_connection_probability <- function(g) {
+  g <- as.undirected(g, mode = "collapse") # render graph undirected
+  m = vcount(g)
+  n = ecount(g)
+  p = 2*m/(n*(n-1)) # this is for undirected graphs 
+  cat(g$name,":", round(p, 5), "\n")
+}
+for (g in graphs_ls) {
+  calculate_connection_probability(g)
+}
+
+```
+
+The amount of clustering is another distinguishing feature in random graph models.
+
+Real-world networks usually have a certain amount of clustering. This might be due to several different reasons. In social friendship networks, for example, ties do not form at random but around common friends (the friends of my friends are my friends), also known as 'triadic closure', or shared value sets, a.k.a. homophily. Both these types of link formation in social networks will be discussed more in week 6.
+
+In contrast to empirical networks, the simple ER graph does not have clustering, as links form as random, leading to few triangles. In contrast, the Watts-Strogatz model exhibits excessive clustering, as large parts of the network consist of closely connected triangles. The Barabási-Albert model has more realistic clustering values in this case, but clustering values are usually different from behaviour observed in empirical networks.
+
+The connection probability is the same for all four models. It is, thus, not responsible for the differences in clustering.
+
+
+
+#### Exercise 6:
+
+Generate a series of Erdős-Rényi graphs with different specifications. Set the number of nodes fix to 1000 nodes, and vary p between 0.00025 and 0.0025 in steps of 0.000025. Create a plot showing the size of the largest connected component plotted against p. Can you pinpoint the phase transition?
+
+
+```{r Exercise 6, echo=TRUE}
+probs <- list()
+sizes <- list()
+
+for (p in seq(0.00025, 0.0025, 0.000025)){
+  probs <- append(probs, p)
+  G_er <- sample_gnp(n = 1000, p , directed = FALSE)
+  size_LCC <- max(igraph::components(G_er)$csize) 
+  sizes <- append(sizes, size_LCC/1000)
+}
+
+plot(probs, sizes, main = "Visualisation of the phase transition", xlab = "Connection probability p", ylab = "% of nodes in LCC", pch = 16, col = "steelblue")
+```
+
+
+
+
